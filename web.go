@@ -90,7 +90,9 @@ func (ctx *Context) ContentType(ext string) {
 }
 
 //Sets a cookie -- duration is the amount of time in seconds. 0 = forever
-func (ctx *Context) SetCookie(name string, value string, age int64) {
+// Use `settings` to set other parts of the cookie eg:
+//	ctx.SetCookie("name", "value", 3600, "path=/", "HttpOnly")
+func (ctx *Context) SetCookie(name string, value string, age int64, settings ...string) {
 	var utctime time.Time
 	var tdelta time.Duration
 	if age == 0 {
@@ -101,6 +103,9 @@ func (ctx *Context) SetCookie(name string, value string, age int64) {
 	}
 	utctime = time.Now().Add(tdelta).UTC()
 	cookie := fmt.Sprintf("%s=%s; expires=%s", name, value, webTime(utctime))
+    for _, setting := range settings {
+        cookie = fmt.Sprintf("%s; %s", cookie, setting)
+    }
 	ctx.SetHeader("Set-Cookie", cookie, false)
 }
 
@@ -113,7 +118,7 @@ func getCookieSig(key string, val []byte, timestamp string) string {
 	return hex
 }
 
-func (ctx *Context) SetSecureCookie(name string, val string, age int64) {
+func (ctx *Context) SetSecureCookie(name string, val string, age int64, settings ...string) {
 	//base64 encode the val
 	if len(ctx.Server.Config.CookieSecret) == 0 {
 		ctx.Logger.Println("Secret Key for secure cookies has not been set. Please call web.SetCookieSecret")
@@ -128,7 +133,7 @@ func (ctx *Context) SetSecureCookie(name string, val string, age int64) {
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	sig := getCookieSig(ctx.Server.Config.CookieSecret, vb, timestamp)
 	cookie := strings.Join([]string{vs, timestamp, sig}, "|")
-	ctx.SetCookie(name, cookie, age)
+	ctx.SetCookie(name, cookie, age, settings...)
 }
 
 func (ctx *Context) GetSecureCookie(name string) (string, bool) {
@@ -215,9 +220,13 @@ type httpConn struct {
 func (c *httpConn) StartResponse(status int) { c.conn.WriteHeader(status) }
 
 func (c *httpConn) SetHeader(hdr string, val string, unique bool) {
-	//right now unique can't be implemented through the http package.
-	//see issue 488
-	c.conn.Header().Set(hdr, val)
+	// Really really naive way to try and implement `unique`.
+    // Seems to work well enough for my uses.
+    if unique {
+        c.conn.Header().Set(hdr, val)
+        return
+    }
+    c.conn.Header().Add(hdr, val)
 }
 
 func (c *httpConn) WriteString(content string) {
